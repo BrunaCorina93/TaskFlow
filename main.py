@@ -2,75 +2,135 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
-import database as db
-from models import Task 
-from models import Task, TaskUpdate # Importe apenas Task
+import sqlite3
+from datetime import datetime
 
-app = FastAPI(
-    title="TaskFlow API",
-    description="API para o Gerenciador de Tarefas Gamer",
-    version="1.0.0"
-)
+app = FastAPI(title="TaskFlow API")
 
-# CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://brunscorfan93.github.io",
-        "http://localhost:3000",
-        "http://localhost:8000",
-        "https://taskflow-api.onrender.com"  # Vai ser sua URL
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-db.init_database()
+
+# Modelo compatível com Pydantic 1.x
+class Task(BaseModel):
+    id: Optional[int] = None
+    text: str
+    completed: bool = False
+    created_at: Optional[datetime] = None
+
+# Database
+def init_database():
+    conn = sqlite3.connect('taskflow.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            text TEXT NOT NULL,
+            completed BOOLEAN NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+init_database()
+
+def get_all_tasks() -> List[Task]:
+    conn = sqlite3.connect('taskflow.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM tasks ORDER BY created_at DESC')
+    rows = cursor.fetchall()
+    conn.close()
+    
+    tasks = []
+    for row in rows:
+        tasks.append(Task(
+            id=row[0],
+            text=row[1],
+            completed=bool(row[2]),
+            created_at=datetime.fromisoformat(row[3]) if row[3] else None
+        ))
+    return tasks
 
 @app.get("/")
 async def root():
-    return {"message": "🎮 TaskFlow API - Gerenciador Gamer de Tarefas!"}
+    return {"message": "🎮 TaskFlow API"}
 
-@app.get("/tasks", response_model=List[Task])
+@app.get("/tasks")
 async def get_tasks():
-    """Busca todas as tarefas"""
-    return db.get_all_tasks()
+    return get_all_tasks()
 
-@app.get("/tasks/{task_id}", response_model=Task)
-async def get_task(task_id: int):
-    """Busca uma tarefa específica"""
-    task = db.get_task(task_id)
-    if task is None:
-        raise HTTPException(status_code=404, detail="Tarefa não encontrada")
-    return task
+@app.post("/tasks")
+async def create_task(task: Task):
+    conn = sqlite3.connect('taskflow.db')
+    cursor = conn.cursor()
+    cursor.execute(
+        'INSERT INTO tasks (text, completed) VALUES (?, ?)',
+        (task.text, task.completed)
+    )
+    task_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    
+    # Return created task
+    conn = sqlite3.connect('taskflow.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM tasks WHERE id = ?', (task_id,))
+    row = cursor.fetchone()
+    conn.close()
+    
+    return Task(
+        id=row[0],
+        text=row[1],
+        completed=bool(row[2]),
+        created_at=datetime.fromisoformat(row[3]) if row[3] else None
+    )
 
-@app.post("/tasks", response_model=Task)
-async def create_task(task: Task):  # Use Task diretamente
-    """Cria uma nova tarefa"""
-    return db.create_task(task)
+@app.put("/tasks/{task_id}")
+async def update_task(task_id: int, task: Task):
+    conn = sqlite3.connect('taskflow.db')
+    cursor = conn.cursor()
+    cursor.execute(
+        'UPDATE tasks SET text = ?, completed = ? WHERE id = ?',
+        (task.text, task.completed, task_id)
+    )
+    conn.commit()
+    conn.close()
+    
+    # Return updated task
+    conn = sqlite3.connect('taskflow.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM tasks WHERE id = ?', (task_id,))
+    row = cursor.fetchone()
+    conn.close()
+    
+    if not row:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    return Task(
+        id=row[0],
+        text=row[1],
+        completed=bool(row[2]),
+        created_at=datetime.fromisoformat(row[3]) if row[3] else None
+    )
 
-@app.put("/tasks/{task_id}", response_model=Task)
-async def update_task(task_id: int, task_update: TaskUpdate):  # Use TaskUpdate aqui
-    """Atualiza uma tarefa"""
-    print(f"🔄 Atualizando tarefa {task_id} com:", task_update.dict())
-    updated_task = db.update_task(task_id, task_update)
-    if updated_task is None:
-        raise HTTPException(status_code=404, detail="Tarefa não encontrada")
-    return updated_task
 @app.delete("/tasks/{task_id}")
 async def delete_task(task_id: int):
-    """Deleta uma tarefa"""
-    success = db.delete_task(task_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Tarefa não encontrada")
-    return {"message": "Tarefa deletada com sucesso!"}
-
-@app.delete("/tasks/clear/completed")  # Mude a URL para evitar conflito
-async def clear_completed_tasks():
-    """Limpa todas as tarefas concluídas"""
-    deleted_count = db.clear_completed_tasks()
-    return {"message": f"{deleted_count} tarefas concluídas removidas", "deleted_count": deleted_count}
+    conn = sqlite3.connect('taskflow.db')
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM tasks WHERE id = ?', (task_id,))
+    deleted = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {"message": "Task deleted"}
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "message": "🚀 API TaskFlow rodando!"}
+    return {"status": "healthy"}
