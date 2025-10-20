@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TaskFlow - Gerenciador de Tarefas</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📝</text></svg>">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📝 TaskFlow</h1>
+            <p>Seu gerenciador de tarefas simplificado</p>
+        </header>
+
+        <div class="add-task">
+            <input type="text" id="taskInput" placeholder="Digite uma nova tarefa...">
+            <button onclick="addTask()">Adicionar Tarefa</button>
+        </div>
+
+        <div class="task-filters">
+            <button class="filter-btn active" onclick="filterTasks('all')">Todas</button>
+            <button class="filter-btn" onclick="filterTasks('pending')">Pendentes</button>
+            <button class="filter-btn" onclick="filterTasks('completed')">Concluídas</button>
+        </div>
+
+        <div id="tasksList" class="tasks-list">
+            <!-- As tarefas vão aparecer aqui -->
+        </div>
+
+        <div class="stats">
+            <span id="taskCount">0 tarefas</span>
+            <button onclick="clearCompleted()">Limpar Concluídas</button>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
