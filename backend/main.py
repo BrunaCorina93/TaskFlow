@@ -15,12 +15,16 @@ app = FastAPI(
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://brunscorfan93.github.io",
+        "http://localhost:3000",
+        "http://localhost:8000",
+        "https://taskflow-api.onrender.com"  # Vai ser sua URL
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 db.init_database()
 
 @app.get("/")
