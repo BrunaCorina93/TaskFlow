@@ -1,52 +1,53 @@
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = (function() {
+    // Se estiver no GitHub Pages (produção)
+    if (window.location.hostname.includes('github.io')) {
+        return ''; // Front-end só, sem back-end por enquanto
+    }
+    // Se estiver em localhost (desenvolvimento)
+    return 'http://localhost:8000';
+})();
 
-let tasks = [];
-let currentFilter = 'all';
-
-// Funções para comunicação com a API
-async function fetchTasks() {
+// Função para verificar se estamos online
+async function checkBackendStatus() {
     try {
-        const response = await fetch(`${API_BASE_URL}/tasks`);
-        if (!response.ok) throw new Error('Erro ao buscar tarefas');
-        tasks = await response.json();
-        renderTasks();
-        updateStats();
+        const response = await fetch(`${API_BASE_URL}/health`, {
+            method: 'GET',
+            timeout: 5000
+        });
+        return response.ok;
     } catch (error) {
-        console.error('Erro:', error);
-        showNotification('❌ Erro ao carregar tarefas', 'error');
+        console.log('🔴 Backend offline - usando modo local');
+        return false;
     }
 }
 
-async function addTask() {
-    const taskInput = document.getElementById('taskInput');
-    const text = taskInput.value.trim();
-
-    if (text) {
+// Sistema de fallback para quando o back-end não estiver disponível
+let localTasks = JSON.parse(localStorage.getItem('tasks')) || [];
+let useLocalStorage = false;
+           async function fetchTasks() {
+    // Tenta o back-end primeiro
+    if (API_BASE_URL && !useLocalStorage) {
         try {
-            const response = await fetch(`${API_BASE_URL}/tasks`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    text: text,
-                    completed: false
-                })
-            });
-
-            if (!response.ok) throw new Error('Erro ao criar tarefa');
-            
-            taskInput.value = '';
-            await fetchTasks(); // Recarrega as tarefas
-            showNotification('✅ Tarefa adicionada!', 'success');
-            
+            const response = await fetch(`${API_BASE_URL}/tasks`);
+            if (response.ok) {
+                tasks = await response.json();
+                // Sincroniza com localStorage como backup
+                localStorage.setItem('tasks', JSON.stringify(tasks));
+                renderTasks();
+                updateStats();
+                return;
+            }
         } catch (error) {
-            console.error('Erro:', error);
-            showNotification('❌ Erro ao adicionar tarefa', 'error');
+            console.log('🔄 Caiu para localStorage');
+            useLocalStorage = true;
         }
     }
+    
+    // Fallback para localStorage
+    tasks = JSON.parse(localStorage.getItem('tasks')) || [];
+    renderTasks();
+    updateStats();
 }
-
 async function toggleTask(id) {
     try {
         console.log('🔘 Toggle task:', id);
