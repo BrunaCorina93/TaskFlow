@@ -1,18 +1,40 @@
+// script.js - VERSÃO COMPLETA CORRIGIDA
 const API_BASE_URL = (function() {
     // Se estiver no GitHub Pages (produção)
     if (window.location.hostname.includes('github.io')) {
-        return ''; // Front-end só, sem back-end por enquanto
+        return ''; // Front-end só, sem back-end
     }
     // Se estiver em localhost (desenvolvimento)
     return 'http://localhost:8000';
 })();
 
-// Função para verificar se estamos online
+// Variáveis globais
+let tasks = [];
+let currentFilter = 'all';
+let useLocalStorage = false;
+
+// Inicialização
+document.addEventListener('DOMContentLoaded', async function() {
+    console.log('🚀 TaskFlow Frontend inicializado!');
+    
+    // Verifica se o backend está disponível
+    const backendOnline = await checkBackendStatus();
+    useLocalStorage = !backendOnline;
+    
+    if (useLocalStorage) {
+        showMobileMessage();
+    }
+    
+    await fetchTasks();
+});
+
+// Função para verificar status do backend
 async function checkBackendStatus() {
+    if (!API_BASE_URL) return false;
+    
     try {
         const response = await fetch(`${API_BASE_URL}/health`, {
-            method: 'GET',
-            timeout: 5000
+            method: 'GET'
         });
         return response.ok;
     } catch (error) {
@@ -21,16 +43,29 @@ async function checkBackendStatus() {
     }
 }
 
-// Sistema de fallback para quando o back-end não estiver disponível
-let localTasks = JSON.parse(localStorage.getItem('tasks')) || [];
-let useLocalStorage = false;
-           async function fetchTasks() {
-    // Tenta o back-end primeiro
+// Mostra mensagem de modo offline
+function showMobileMessage() {
+    const mobileMessage = document.getElementById('mobileMessage');
+    if (mobileMessage) {
+        mobileMessage.style.display = 'block';
+    }
+}
+
+// SISTEMA COMPLETO DE FALLBACK - FUNÇÕES CORRIGIDAS
+async function fetchTasks() {
+    console.log('📥 Buscando tarefas...');
+    
+    // Tenta o back-end primeiro (apenas se não estiver forçado para localStorage)
     if (API_BASE_URL && !useLocalStorage) {
         try {
+            console.log('🌐 Tentando conectar com backend...');
             const response = await fetch(`${API_BASE_URL}/tasks`);
+            
             if (response.ok) {
-                tasks = await response.json();
+                const apiTasks = await response.json();
+                console.log('✅ Backend online, tarefas carregadas:', apiTasks.length);
+                
+                tasks = apiTasks;
                 // Sincroniza com localStorage como backup
                 localStorage.setItem('tasks', JSON.stringify(tasks));
                 renderTasks();
@@ -38,54 +73,140 @@ let useLocalStorage = false;
                 return;
             }
         } catch (error) {
-            console.log('🔄 Caiu para localStorage');
+            console.log('🔄 Caiu para localStorage - Backend offline');
             useLocalStorage = true;
+            showMobileMessage();
         }
     }
     
     // Fallback para localStorage
-    tasks = JSON.parse(localStorage.getItem('tasks')) || [];
+    console.log('💾 Usando localStorage...');
+    const storedTasks = localStorage.getItem('tasks');
+    tasks = storedTasks ? JSON.parse(storedTasks) : [];
+    
+    console.log('📋 Tarefas carregadas do localStorage:', tasks);
     renderTasks();
     updateStats();
 }
+
+// FUNÇÃO ADD TASK CORRIGIDA
+async function addTask() {
+    const taskInput = document.getElementById('taskInput');
+    const text = taskInput.value.trim();
+
+    if (!text) {
+        showNotification('📝 Digite uma tarefa!', 'error');
+        return;
+    }
+
+    try {
+        console.log('📤 Adicionando tarefa:', text);
+        
+        const newTask = {
+            text: text,
+            completed: false,
+            created_at: new Date().toISOString()
+        };
+
+        // Se backend disponível, tenta salvar lá
+        if (API_BASE_URL && !useLocalStorage) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/tasks`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(newTask)
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log('✅ Tarefa salva no backend:', result);
+                    
+                    taskInput.value = '';
+                    await fetchTasks(); // Recarrega as tarefas
+                    showNotification('✅ Tarefa adicionada!', 'success');
+                    return;
+                }
+            } catch (error) {
+                console.log('🔄 Caiu para localStorage na criação');
+                useLocalStorage = true;
+                showMobileMessage();
+            }
+        }
+
+        // SALVAMENTO NO LOCALSTORAGE (FUNCIONA SEMPRE)
+        console.log('💾 Salvando no localStorage...');
+        
+        // Gera um ID temporário
+        newTask.id = Date.now(); // ID baseado no timestamp
+        tasks.unshift(newTask); // Adiciona no início do array
+        
+        // Salva no localStorage
+        localStorage.setItem('tasks', JSON.stringify(tasks));
+        
+        console.log('✅ Tarefa salva no localStorage:', newTask);
+        
+        // Atualiza a interface
+        taskInput.value = '';
+        renderTasks();
+        updateStats();
+        showNotification('✅ Tarefa adicionada!', 'success');
+        
+    } catch (error) {
+        console.error('💥 Erro ao adicionar tarefa:', error);
+        showNotification('❌ Erro ao adicionar tarefa', 'error');
+    }
+}
+
+// FUNÇÃO TOGGLE TASK CORRIGIDA
 async function toggleTask(id) {
     try {
-        console.log('🔘 Toggle task:', id);
+        console.log('🔘 Alternando tarefa:', id);
         
-        // Encontra a tarefa atual
-        const task = tasks.find(task => task.id === id);
-        if (!task) {
+        // Encontra a tarefa
+        const taskIndex = tasks.findIndex(task => task.id === id);
+        if (taskIndex === -1) {
             console.error('❌ Tarefa não encontrada:', id);
             return;
         }
         
-        const newCompletedStatus = !task.completed;
-        console.log(`🔄 Alterando tarefa ${id} de ${task.completed} para ${newCompletedStatus}`);
+        // Alterna o status
+        tasks[taskIndex].completed = !tasks[taskIndex].completed;
+        console.log(`🔄 Tarefa ${id} alterada para:`, tasks[taskIndex].completed);
         
-        // Envia para a API
-        const response = await fetch(`${API_BASE_URL}/tasks/${id}`, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                completed: newCompletedStatus
-            })
-        });
+        // Tenta atualizar no backend
+        if (API_BASE_URL && !useLocalStorage) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/tasks/${id}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        completed: tasks[taskIndex].completed
+                    })
+                });
 
-        console.log('📥 Resposta do toggle:', response.status);
-        
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error('❌ Erro ao atualizar tarefa:', errorText);
-            throw new Error(`Erro ${response.status}`);
+                if (response.ok) {
+                    console.log('✅ Tarefa atualizada no backend');
+                    // Sincroniza localStorage
+                    localStorage.setItem('tasks', JSON.stringify(tasks));
+                    renderTasks();
+                    updateStats();
+                    return;
+                }
+            } catch (error) {
+                console.log('🔄 Caiu para localStorage no toggle');
+                useLocalStorage = true;
+                showMobileMessage();
+            }
         }
         
-        const updatedTask = await response.json();
-        console.log('✅ Tarefa atualizada:', updatedTask);
-        
-        // Atualiza a lista local
-        await fetchTasks();
+        // ATUALIZA NO LOCALSTORAGE
+        localStorage.setItem('tasks', JSON.stringify(tasks));
+        renderTasks();
+        updateStats();
         showNotification('✅ Tarefa atualizada!', 'success');
         
     } catch (error) {
@@ -94,6 +215,7 @@ async function toggleTask(id) {
     }
 }
 
+// FUNÇÃO DELETE TASK CORRIGIDA
 async function deleteTask(id) {
     const taskElement = document.querySelector(`.delete-btn[onclick="deleteTask(${id})"]`)?.parentElement;
     
@@ -104,19 +226,39 @@ async function deleteTask(id) {
     setTimeout(async () => {
         if (confirm('Tem certeza que quer deletar esta tarefa?')) {
             try {
+                // Efeito visual
                 if (taskElement) {
                     taskElement.style.transition = 'all 0.3s ease';
                     taskElement.style.opacity = '0';
                     taskElement.style.transform = 'translateX(-100%)';
                 }
                 
-                const response = await fetch(`${API_BASE_URL}/tasks/${id}`, {
-                    method: 'DELETE'
-                });
+                // Tenta deletar no backend
+                if (API_BASE_URL && !useLocalStorage) {
+                    try {
+                        const response = await fetch(`${API_BASE_URL}/tasks/${id}`, {
+                            method: 'DELETE'
+                        });
 
-                if (!response.ok) throw new Error('Erro ao deletar tarefa');
+                        if (response.ok) {
+                            console.log('✅ Tarefa deletada do backend');
+                            await fetchTasks();
+                            showNotification('🗑️ Tarefa deletada!', 'success');
+                            return;
+                        }
+                    } catch (error) {
+                        console.log('🔄 Caiu para localStorage no delete');
+                        useLocalStorage = true;
+                        showMobileMessage();
+                    }
+                }
                 
-                await fetchTasks(); // Recarrega as tarefas
+                // DELETA DO LOCALSTORAGE
+                tasks = tasks.filter(task => task.id !== id);
+                localStorage.setItem('tasks', JSON.stringify(tasks));
+                
+                renderTasks();
+                updateStats();
                 showNotification('🗑️ Tarefa deletada!', 'success');
                 
             } catch (error) {
@@ -127,6 +269,7 @@ async function deleteTask(id) {
     }, 500);
 }
 
+// FUNÇÃO CLEAR COMPLETED CORRIGIDA
 async function clearCompleted() {
     const completedTasks = tasks.filter(task => task.completed);
     
@@ -137,7 +280,7 @@ async function clearCompleted() {
     
     if (confirm(`🗑️ Tem certeza que quer remover ${completedTasks.length} tarefa(s) concluída(s)?`)) {
         try {
-            // Efeito visual nas tarefas concluídas
+            // Efeito visual
             const completedElements = document.querySelectorAll('.task-item.completed');
             completedElements.forEach(element => {
                 element.style.transition = 'all 0.4s ease';
@@ -146,36 +289,44 @@ async function clearCompleted() {
             });
             
             setTimeout(async () => {
-                console.log('🗑️ Enviando requisição para limpar tarefas concluídas...');
-                
-                // CORREÇÃO: Use a nova URL
-                const response = await fetch(`${API_BASE_URL}/tasks/clear/completed`, {
-                    method: 'DELETE'
-                });
-
-                console.log('📥 Resposta do clear:', response.status);
-                
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    console.error('❌ Erro ao limpar tarefas:', errorText);
-                    throw new Error(`Erro ${response.status}`);
+                // Tenta limpar no backend
+                if (API_BASE_URL && !useLocalStorage) {
+                    try {
+                        // Para cada tarefa concluída, faz DELETE individual
+                        for (const task of completedTasks) {
+                            await fetch(`${API_BASE_URL}/tasks/${task.id}`, {
+                                method: 'DELETE'
+                            });
+                        }
+                        console.log('✅ Tarefas concluídas removidas do backend');
+                        await fetchTasks();
+                        showNotification(`🗑️ ${completedTasks.length} tarefas removidas!`, 'success');
+                        return;
+                    } catch (error) {
+                        console.log('🔄 Caiu para localStorage no clear');
+                        useLocalStorage = true;
+                        showMobileMessage();
+                    }
                 }
                 
-                const result = await response.json();
-                console.log('✅ Tarefas limpas com sucesso:', result);
+                // LIMPA DO LOCALSTORAGE
+                tasks = tasks.filter(task => !task.completed);
+                localStorage.setItem('tasks', JSON.stringify(tasks));
                 
-                await fetchTasks(); // Recarrega as tarefas
-                showNotification(`🗑️ ${result.message}`, 'success');
+                renderTasks();
+                updateStats();
+                showNotification(`🗑️ ${completedTasks.length} tarefas removidas!`, 'success');
                 
             }, 400);
             
         } catch (error) {
-            console.error('💥 Erro completo ao limpar tarefas:', error);
+            console.error('💥 Erro ao limpar tarefas:', error);
             showNotification('❌ Erro ao limpar tarefas concluídas', 'error');
         }
     }
 }
-// Funções de renderização (mantemos as mesmas)
+
+// FUNÇÕES DE RENDERIZAÇÃO
 function renderTasks() {
     const tasksList = document.getElementById('tasksList');
     const filteredTasks = filterTasksByStatus(currentFilter);
@@ -229,6 +380,7 @@ function renderTasks() {
         
     }, 200);
 }
+
 function filterTasks(filter) {
     currentFilter = filter;
     
@@ -294,7 +446,7 @@ function updateStats() {
     statsElement.textContent = message;
 }
 
-// Sistema de notificações
+// SISTEMA DE NOTIFICAÇÕES
 function showNotification(message, type = 'info') {
     // Remove notificação anterior se existir
     const existingNotification = document.querySelector('.notification');
@@ -355,49 +507,29 @@ document.getElementById('taskInput').addEventListener('keypress', function(e) {
     }
 });
 
-// Inicialização
-document.addEventListener('DOMContentLoaded', function() {
-    console.log('🚀 TaskFlow Frontend inicializado!');
+// Função para forçar modo localStorage (útil para testes)
+function forceLocalStorageMode() {
+    useLocalStorage = true;
+    showMobileMessage();
     fetchTasks();
-}); 
+    showNotification('🔧 Modo localStorage ativado!', 'info');
+}
 
-async function addTask() {
-    const taskInput = document.getElementById('taskInput');
-    const text = taskInput.value.trim();
-
-    if (text) {
-        try {
-            console.log('📤 Enviando tarefa para API...', text);
-            
-            const response = await fetch(`${API_BASE_URL}/tasks`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    text: text,
-                    completed: false
-                })
-            });
-
-            console.log('📥 Resposta da API:', response);
-            
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('❌ Erro detalhado:', errorText);
-                throw new Error(`Erro ${response.status}: ${errorText}`);
-            }
-            
-            const result = await response.json();
-            console.log('✅ Tarefa criada:', result);
-            
-            taskInput.value = '';
-            await fetchTasks();
-            showNotification('✅ Tarefa adicionada!', 'success');
-            
-        } catch (error) {
-            console.error('💥 Erro completo:', error);
-            showNotification('❌ Erro ao adicionar tarefa: ' + error.message, 'error');
-        }
+// Função para tentar reconectar com o backend
+async function tryReconnectBackend() {
+    const wasOnline = !useLocalStorage;
+    useLocalStorage = false;
+    
+    const backendOnline = await checkBackendStatus();
+    if (backendOnline) {
+        showNotification('🌐 Conectado com o backend!', 'success');
+        document.getElementById('mobileMessage').style.display = 'none';
+        await fetchTasks();
+    } else {
+        useLocalStorage = true;
+        showNotification('🔴 Backend ainda offline', 'error');
     }
 }
+
+console.log('🎮 TaskFlow JavaScript carregado!');
+console.log('📡 API Base URL:', API_BASE_URL || 'Nenhuma (modo estático)');
